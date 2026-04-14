@@ -1,5 +1,5 @@
 ---
-title: AI model service for Backstage
+title: AI model provider service for Backstage
 status: implementable
 authors:
   - '@pguppy'
@@ -10,7 +10,7 @@ project-areas:
 creation-date: 2026-04-14
 ---
 
-# BEP: AI model provider service for Backstage
+# BEP: AI model service for Backstage
 
 - [Summary](#summary)
 - [Motivation](#motivation)
@@ -26,9 +26,9 @@ creation-date: 2026-04-14
 
 ## Summary
 
-This BEP proposes a new **core AI model provider service** for Backstage.
+This BEP proposes a new **core AI model provder service** for Backstage.
 
-The service gives backend plugins and other backend features a single unified interface to access AI models and there providers such as:
+The service gives backend plugins and other backend features a single, provider-agnostic way to access AI model capabilities such as:
 
 - text generation
 - structured output
@@ -195,7 +195,7 @@ Choosing AI SDK here means Backstage is making a deliberate trade:
   - capability gating.
   - startup validation.
   - how backend features consume the service.
-  - any optional runtime-facing adapters that Backstage chooses to expose.
+  - any advanced runtime-resolution method or reference integrations that Backstage chooses to expose.
 
 - **AI SDK provides**
   - provider protocol types.
@@ -215,7 +215,7 @@ The default implementation can still use AI SDK internally to:
 
 - resolve provider instances from config.
 - create model primitives for generation, embeddings, and streaming.
-- interoperate with runtimes that already understand AI SDK concepts.
+- interoperate with runtimes that already understand AI SDK concepts through advanced methods on the same service.
 
 This gives Backstage the benefits of AI SDK without coupling the long-term framework API directly to AI SDK surface area.
 
@@ -226,19 +226,100 @@ The primary thing this BEP asks Backstage to introduce is a new core AI model se
 The service should let consumers do things like:
 
 ```ts
+type AIResolvableModelCapability = 'text-generation' | 'embeddings';
+
+interface ResolveModelRequest<
+  TCapability extends AIResolvableModelCapability = AIResolvableModelCapability,
+> {
+  capability: TCapability;
+  provider?: string;
+  model?: string;
+}
+
+type ResolvedModel<TCapability extends AIResolvableModelCapability> =
+  TCapability extends 'embeddings' ? EmbeddingModel<string> : LanguageModel;
+
 interface AIModelsService {
+  /**
+   * Generates text using the resolved provider instance and model selection policy.
+   *
+   * @param request - The text-generation request, including prompt, optional provider selection, and model options.
+   * @returns The generated text response and any associated provider metadata exposed by the service contract.
+   */
   generateText(request: GenerateTextRequest): Promise<GenerateTextResponse>;
+
+  /**
+   * Streams text output using the same provider resolution and capability-gating rules as `generateText`.
+   *
+   * @param request - The streaming text-generation request.
+   * @returns An async iterable that yields streamed text output from the resolved model.
+   */
   streamText(request: StreamTextRequest): AsyncIterable<string>;
+
+  /**
+   * Generates structured output validated against the caller-provided schema or type contract.
+   *
+   * @param request - The structured-generation request, including schema and prompt or input content.
+   * @returns A structured response whose payload conforms to the requested output shape.
+   */
   generateObject<T>(
     request: GenerateObjectRequest<T>,
   ): Promise<GenerateObjectResponse<T>>;
+
+  /**
+   * Generates embeddings for the supplied input using an embeddings-capable model.
+   *
+   * @param request - The embedding request, including the input value or values to embed.
+   * @returns The embedding response produced by the resolved embeddings-capable model.
+   */
   embed(request: EmbedRequest): Promise<EmbedResponse>;
+
+  /**
+   * Generates images when the resolved provider instance supports image generation.
+   *
+   * @param request - The image-generation request.
+   * @returns The generated image response from the resolved image-capable model.
+   */
   generateImage?(request: GenerateImageRequest): Promise<GenerateImageResponse>;
+
+  /**
+   * Generates speech audio when the resolved provider instance supports speech synthesis.
+   *
+   * @param request - The speech-generation request.
+   * @returns The generated speech response, such as audio content or a provider-specific output reference.
+   */
   generateSpeech?(
     request: GenerateSpeechRequest,
   ): Promise<GenerateSpeechResponse>;
+
+  /**
+   * Transcribes audio when the resolved provider instance supports transcription.
+   *
+   * @param request - The transcription request, including the audio input to process.
+   * @returns The transcription response produced by the resolved transcription-capable model.
+   */
   transcribe?(request: TranscribeRequest): Promise<TranscribeResponse>;
+
+  /**
+   * Generates video when the resolved provider instance supports video generation.
+   *
+   * @param request - The video-generation request.
+   * @returns The generated video response from the resolved video-capable model.
+   */
   generateVideo?(request: GenerateVideoRequest): Promise<GenerateVideoResponse>;
+
+  /**
+   * Resolves an AI SDK-compatible model for advanced runtime integration.
+   *
+   * This is an advanced method intended for runtimes such as Mastra/LangGraph. Ordinary
+   * Backstage consumers should prefer the Backstage-owned request/response methods above.
+   *
+   * @param options - Provider, model, and capability selection used to resolve the model object.
+   * @returns An AI SDK-compatible model instance suitable for advanced runtime injection.
+   */
+  resolveModel?<TCapability extends AIResolvableModelCapability>(
+    options: ResolveModelRequest<TCapability>,
+  ): Promise<ResolvedModel<TCapability>>;
 }
 ```
 
@@ -246,7 +327,16 @@ This surface should be provider-agnostic. Consumer code should not need to know 
 
 Requests may optionally name a provider instance and model. Otherwise, the service resolves them from the configured defaults under `ai.providers.*`.
 
-The service contract should stay stable even if the internal AI SDK integration evolves over time.
+Provider instances are **not** one-model bindings. A single provider instance may expose multiple models for the same capability, such as several text-generation models behind one OpenAI or Google provider instance.
+
+The resolution rules should be:
+
+- if `provider` and `model` are supplied, use that exact model on that provider instance.
+- if `provider` is supplied and `model` is omitted, use that provider instance's default model for the requested capability.
+- if both are omitted, use `ai.defaultProvider` and that provider instance's default model for the requested capability.
+- if `model` is supplied and `provider` is omitted, resolve the model within the default provider instance only. Callers that want a non-default provider must name it explicitly.
+
+The service contract should stay stable even if the internal AI SDK integration evolves over time. If runtime-oriented AI SDK-compatible interop is added, it should remain a clearly documented advanced method on the same service rather than becoming the primary ordinary usage path.
 
 ### Provider family contribution model
 
@@ -320,9 +410,9 @@ This keeps provider extensibility open without making the AI service itself a pl
 
 Using AI SDK internally also gives Backstage a cleaner interop story with TypeScript AI runtimes that already understand AI SDK model semantics.
 
-The clearest immediate example is Mastra. Backstage should be able to add a small interop layer later that adapts resolved Backstage model handles into Mastra-friendly AI SDK usage patterns, without requiring backend plugins to consume AI SDK directly.
+The clearest immediate example is Mastra. Backstage should be able to expose a single advanced `resolveModel(...)` method on `AIModelsService` that returns AI SDK-compatible model objects for runtime injection, without forcing ordinary backend plugins to consume AI SDK directly.
 
-That is a strong reason to use AI SDK under the hood. It is **not** a reason to make AI SDK the primary public framework API.
+That is a strong reason to use AI SDK under the hood. It is **not** a reason to make AI SDK the only or primary ordinary usage pattern of the public framework API.
 
 ### Configuration
 
@@ -342,15 +432,50 @@ ai:
       defaultModels:
         text-generation: gpt-4o
         embeddings: text-embedding-3-large
+      modelAliases:
+        text-generation:
+          fast: gpt-4.1-mini
+          flagship: gpt-4.1
+          reasoning: o4-mini
 
-    anthropic:
-      type: anthropic
-      apiKey: ${ANTHROPIC_API_KEY}
+    gemini:
+      type: google
+      apiKey: ${GOOGLE_API_KEY}
       defaultModels:
-        text-generation: claude-3-7-sonnet-latest
+        text-generation: gemini-2.5-pro
+      modelAliases:
+        text-generation:
+          fast: gemini-2.5-flash
+          flagship: gemini-2.5-pro
 ```
 
-This gives operators one place to manage credentials, model defaults, and provider configuration.
+This gives operators one place to manage credentials, model defaults, optional model aliases, and provider configuration.
+
+The important rule is that `defaultModels` selects the fallback model for each capability. It does **not** mean a provider instance can only use one model for that capability.
+
+For example, all of the following should be valid:
+
+```ts
+await aiModels.generateText({
+  provider: 'gemini',
+  model: 'gemini-2.5-flash',
+  prompt: 'Summarize this document',
+});
+
+await aiModels.generateText({
+  provider: 'openai',
+  model: 'o4-mini',
+  prompt: 'Think through this migration plan',
+});
+
+await aiModels.resolveModel({
+  capability: 'text-generation',
+  provider: 'openai',
+  model: 'gpt-4.1-mini',
+});
+```
+
+`model` may be either a concrete upstream model ID or an operator-defined alias if the selected provider instance exposes aliases.
 
 ### Custom endpoints and provider families
 
@@ -443,10 +568,10 @@ ai:
       defaultModels:
         text-generation: claude-sonnet-4-5
 
-    anthropic-proxy:
+    anthropic:
       type: anthropic
-      apiKey: ${ANTHROPIC_PROXY_API_KEY}
-      baseURL: https://anthropic-proxy.internal/v1
+      apiKey: ${ANTHROPIC_API_KEY}
+      baseURL: https://anthropic.internal/v1
       defaultModels:
         text-generation: claude-sonnet-4-5
 
@@ -466,7 +591,7 @@ ai:
 
 In this model:
 
-- config keys such as `anthropic-proxy` or `groq` are **provider instances**.
+- config keys such as `anthropic` or `groq` are **provider instances**.
 - `type` identifies the **provider family factory**.
 - model IDs remain provider-specific.
 - the number of built-in Backstage provider families stays small even if the number of configured provider instances grows.
@@ -514,7 +639,7 @@ After the model service lands, follow-up design and implementation work can expa
 - tools.
 - context.
 - governance.
-- runtime adapters.
+- runtime integrations.
 
 These are deliberately not part of the initial BEP scope.
 
