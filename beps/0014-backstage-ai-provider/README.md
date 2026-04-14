@@ -1,6 +1,6 @@
 ---
 title: AI Model Provider for Backstage
-status: draft
+status: implementable
 authors:
   - '@pguppy'
 owners:
@@ -94,9 +94,9 @@ At a high level, the service will provide:
 
 - a provider-agnostic API for model capabilities
 - a standard config model for provider credentials and defaults
-- a provider registration mechanism for pluggable provider modules
+- a provider registration mechanism for extensible provider modules
 - a stable surface for backend plugins to consume
-- a HTTP facade for frontend and remote consumers
+- an HTTP facade for frontend and remote consumers
 
 ### Proposed shape
 
@@ -122,7 +122,7 @@ Backstage AI will likely grow into a broader platform over time. That broader di
 
 ### Why AI SDK
 
-This proposal explicitly asks Backstage to align the AI model service with the **Vercel AI SDK** provider ecosystem.
+This proposal explicitly asks Backstage to align the AI model service with the **AI SDK** provider ecosystem.
 
 More specifically:
 
@@ -137,7 +137,7 @@ It means:
 
 - Backstage uses AI SDK as the model/provider abstraction layer
 - Backstage keeps its own service contract and config model
-- Backstage remains free to integrate with different orchestration runtimes above that layer
+- Backstage remains free to integrate with different orchestration runtime environments above that layer
 
 #### Why this is a strong fit
 
@@ -204,7 +204,7 @@ This surface should be provider-agnostic. Plugin authors should not need to know
 
 ### Provider abstraction
 
-Provider implementations should be pluggable and follow the existing Backstage extensibility model.
+Provider implementations should be extensible and follow the existing Backstage extensibility model.
 
 Each provider implementation should:
 
@@ -248,6 +248,8 @@ The intent is:
 
 All provider configuration should live under a single `ai` root key in `app-config.yaml`.
 
+The `type` field is always required and identifies the provider family implementation. The `defaultProvider` key refers to a provider instance key, not a family name.
+
 Example:
 
 ```yaml
@@ -255,18 +257,20 @@ ai:
   defaultProvider: openai
   providers:
     openai:
+      type: openai
       apiKey: ${OPENAI_API_KEY}
       defaultModels:
         text-generation: gpt-4o
         embeddings: text-embedding-3-large
 
     anthropic:
+      type: anthropic
       apiKey: ${ANTHROPIC_API_KEY}
       defaultModels:
         text-generation: claude-3-7-sonnet-latest
 ```
 
-This gives operators one place to manage credentials, model defaults, and provider enablement.
+This gives operators one place to manage credentials, model defaults, and provider configuration.
 
 ### Custom endpoints and provider families
 
@@ -294,7 +298,7 @@ This means custom endpoints should work like this:
 - the **Bedrock** provider module can support a custom `baseURL` for Bedrock proxy or custom Bedrock endpoints
 - the **OpenAI-compatible** path can support arbitrary `baseURL`, headers, and query parameters for the long tail of OpenAI-style providers
 
-If an operator has an internal endpoint that exposes Anthropic's API shape, that is configured as an Anthropic provider instance with a custom endpoint.
+If an operator has an internal endpoint that exposes the Anthropic API shape, that is configured as an Anthropic provider instance with a custom endpoint.
 
 If an operator is using Claude through Bedrock, that is configured as a Bedrock provider instance, even though the underlying model vendor is Anthropic and some SDK layers may offer compatible calling patterns.
 
@@ -519,4 +523,4 @@ This BEP proposes a narrow, implementable first step for AI in the Backstage fra
 - make it extensible through provider modules
 - make capabilities explicit through configuration
 
-That gives Backstage a clear and useful foundation for AI features without overcommitting to a broader runtime design too early.
+That gives Backstage a clear and useful foundation for AI features without committing prematurely to a broader runtime design.
