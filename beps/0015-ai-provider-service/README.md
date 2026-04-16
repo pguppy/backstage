@@ -10,23 +10,23 @@ project-areas:
 creation-date: 2026-04-14
 ---
 
-# BEP: AI model service for Backstage
+# BEP: AI model provider service for Backstage
 
 - [Summary](#summary)
 - [Motivation](#motivation)
-- [Goals](#goals)
-- [Non-goals](#non-goals)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-- [Design details](#design-details)
-- [Why service-first](#why-service-first)
-- [Why AI SDK](#why-ai-sdk)
-- [Release plan](#release-plan)
+- [Design Details](#design-details)
+  - [Why service-first](#why-service-first)
+  - [Why AI SDK](#why-ai-sdk)
+- [Release Plan](#release-plan)
 - [Dependencies](#dependencies)
 - [Alternatives](#alternatives)
 
 ## Summary
 
-This BEP proposes a new **core AI model provder service** for Backstage.
+This BEP proposes a new **core AI model provider service** for Backstage.
 
 The service gives backend plugins and other backend features a single, provider-agnostic way to access AI model capabilities such as:
 
@@ -78,7 +78,7 @@ The service should make the following possible:
 - **Expose a clear model API** that is easy for plugin authors and maintainers to understand.
 - **Keep the first implementation narrow** and focused on model access only.
 
-### Non-goals
+### Non-Goals
 
 - **No general-purpose agent framework.**
 - **No tool registry.**
@@ -122,7 +122,7 @@ The proposal has five parts:
 
 Backstage AI will likely grow into a broader platform over time. That broader direction includes tools, context, and governance, but this BEP only proposes the model-access layer that those capabilities would later build on.
 
-## Design details
+## Design Details
 
 ### Why service-first
 
@@ -239,6 +239,16 @@ interface ResolveModelRequest<
 type ResolvedModel<TCapability extends AIResolvableModelCapability> =
   TCapability extends 'embeddings' ? EmbeddingModel<string> : LanguageModel;
 
+interface StreamTextResponse {
+  /** An async iterable of streamed text chunks as they arrive from the model. */
+  textStream: AsyncIterable<string>;
+  /** Resolves when the stream completes with finish reason and token usage metadata. */
+  response: Promise<{
+    finishReason: string;
+    usage: { inputTokens: number; outputTokens: number };
+  }>;
+}
+
 interface AIModelsService {
   /**
    * Generates text using the resolved provider instance and model selection policy.
@@ -252,9 +262,10 @@ interface AIModelsService {
    * Streams text output using the same provider resolution and capability-gating rules as `generateText`.
    *
    * @param request - The streaming text-generation request.
-   * @returns An async iterable that yields streamed text output from the resolved model.
+   * @returns A structured stream response containing the text chunk iterable and a promise
+   *   that resolves to final metadata (finish reason, token usage) when the stream completes.
    */
-  streamText(request: StreamTextRequest): AsyncIterable<string>;
+  streamText(request: StreamTextRequest): StreamTextResponse;
 
   /**
    * Generates structured output validated against the caller-provided schema or type contract.
@@ -568,9 +579,9 @@ ai:
       defaultModels:
         text-generation: claude-sonnet-4-5
 
-    anthropic:
+    anthropicInternal:
       type: anthropic
-      apiKey: ${ANTHROPIC_API_KEY}
+      apiKey: ${ANTHROPIC_INTERNAL_API_KEY}
       baseURL: https://anthropic.internal/v1
       defaultModels:
         text-generation: claude-sonnet-4-5
@@ -616,7 +627,7 @@ It does not define:
 
 Those topics should be discussed separately once the model service exists.
 
-## Release plan
+## Release Plan
 
 ### Initial implementation
 
