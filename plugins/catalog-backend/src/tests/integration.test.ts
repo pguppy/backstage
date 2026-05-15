@@ -283,6 +283,7 @@ class TestHarness {
       knex: options.db,
       logger,
       metrics: metricsServiceMock.mock(),
+      statusStore: { getStatuses: async () => new Map() } as any,
     });
     const catalog = new DefaultEntitiesCatalog({
       database: options.db,

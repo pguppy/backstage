@@ -96,6 +96,12 @@ describe('createRouter readonly disabled', () => {
       httpAuth: mockServices.httpAuth(),
       locationAnalyzer,
       permissionsService,
+      statusStore: {
+        setStatus: jest.fn(),
+        deleteStatus: jest.fn(),
+        getStatuses: jest.fn().mockResolvedValue(new Map()),
+      } as any,
+      stitcher: { stitch: jest.fn() } as any,
       auditor: mockServices.auditor.mock(),
     });
     router.use(middleware.error());
@@ -165,7 +171,9 @@ describe('createRouter readonly disabled', () => {
         httpAuth: mockServices.httpAuth(),
         locationAnalyzer,
         permissionsService,
-        enableRelationsCompatibility: true, // added
+        enableRelationsCompatibility: true,
+        statusStore: {} as any,
+        stitcher: {} as any,
         auditor: mockServices.auditor.mock(),
       });
 
@@ -228,6 +236,8 @@ describe('createRouter readonly disabled', () => {
         locationAnalyzer,
         permissionsService,
         enableRelationsCompatibility: true,
+        statusStore: {} as any,
+        stitcher: {} as any,
         auditor: mockServices.auditor.mock(),
       });
       app = await wrapServer(express().use(router));
@@ -962,6 +972,8 @@ describe('createRouter readonly disabled', () => {
         httpAuth: mockServices.httpAuth(),
         orchestrator: { process: jest.fn() },
         permissionsService: mockServices.permissions(),
+        statusStore: {} as any,
+        stitcher: {} as any,
         auditor: mockServices.auditor.mock(),
       });
       router.use(middleware.error());
@@ -1489,6 +1501,12 @@ describe('createRouter readonly and raw json enabled', () => {
       httpAuth: mockServices.httpAuth(),
       orchestrator: { process: jest.fn() },
       permissionsService,
+      statusStore: {
+        setStatus: jest.fn(),
+        deleteStatus: jest.fn(),
+        getStatuses: jest.fn().mockResolvedValue(new Map()),
+      } as any,
+      stitcher: { stitch: jest.fn() } as any,
       auditor: mockServices.auditor.mock(),
     });
     router.use(middleware.error());
@@ -1717,6 +1735,12 @@ describe('POST /locations/by-query works end to end', () => {
       httpAuth: mockServices.httpAuth(),
       orchestrator: { process: jest.fn() },
       permissionsService: mockServices.permissions(),
+      statusStore: {
+        setStatus: jest.fn(),
+        deleteStatus: jest.fn(),
+        getStatuses: jest.fn().mockResolvedValue(new Map()),
+      } as any,
+      stitcher: { stitch: jest.fn() } as any,
       auditor: mockServices.auditor.mock(),
     });
 

@@ -43,5 +43,7 @@ export type {
   QueryLocationsCursorRequest,
   QueryLocationsInitialRequest,
   QueryLocationsResponse,
+  SetEntityStatusRequest,
+  DeleteEntityStatusRequest,
 } from './api';
 export { ENTITY_STATUS_CATALOG_PROCESSING_TYPE } from './status';

@@ -101,6 +101,19 @@ export const catalogEntityValidatePermission = createPermission({
 });
 
 /**
+ * This permission is used to authorize actions that involve updating the
+ * status of a catalog entity.
+ * @alpha
+ */
+export const catalogEntityStatusWritePermission = createPermission({
+  name: 'catalog.entity.status.update',
+  attributes: {
+    action: 'update',
+  },
+  resourceType: RESOURCE_TYPE_CATALOG_ENTITY,
+});
+
+/**
  * This permission is used to designate actions that involve reading one or more
  * locations from the catalog.
  *
@@ -158,6 +171,7 @@ export const catalogPermissions = [
   catalogEntityDeletePermission,
   catalogEntityRefreshPermission,
   catalogEntityValidatePermission,
+  catalogEntityStatusWritePermission,
   catalogLocationReadPermission,
   catalogLocationCreatePermission,
   catalogLocationDeletePermission,

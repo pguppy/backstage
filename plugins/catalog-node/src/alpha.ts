@@ -28,8 +28,17 @@ export const catalogEntityPermissionResourceRef = createPermissionResourceRef<
   resourceType: RESOURCE_TYPE_CATALOG_ENTITY,
 });
 
-export type { CatalogModelExtensionPoint } from './extensions';
-export { catalogModelExtensionPoint } from './extensions';
+export type {
+  CatalogModelExtensionPoint,
+  CatalogStitchingExtensionPoint,
+  StitchingStatusMerger,
+  EntityStatusQuery,
+} from './extensions';
+export {
+  catalogModelExtensionPoint,
+  catalogStitchingExtensionPoint,
+} from './extensions';
+export * from './catalogStitcherService';
 
 export * from './scmEvents';
 export { provideStaticCatalogModel } from './provideStaticCatalogModel';

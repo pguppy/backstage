@@ -14,17 +14,20 @@
  * limitations under the License.
  */
 
+import { CatalogStitcherService } from './catalogStitcherService';
 import { createExtensionPoint } from '@backstage/backend-plugin-api';
 import { Entity, Validators } from '@backstage/catalog-model';
-import { CatalogModelSource } from '@backstage/catalog-model/alpha';
-import type {
-  CatalogProcessor,
-  CatalogProcessorParser,
-  EntityProvider,
+import {
+  CatalogModelSource,
+  AlphaEntity,
+} from '@backstage/catalog-model/alpha';
+import { CatalogProcessor, CatalogProcessorParser } from './api/processor';
+import { EntityProvider } from './api/provider';
+import {
   LocationAnalyzer,
   PlaceholderResolver,
   ScmLocationAnalyzer,
-} from '@backstage/plugin-catalog-node';
+} from './processing/types';
 
 /**
  * @public
@@ -165,4 +168,57 @@ export const catalogAnalysisExtensionPoint =
 export const catalogModelExtensionPoint =
   createExtensionPoint<CatalogModelExtensionPoint>({
     id: 'catalog.model',
+  });
+
+/** @alpha */
+export interface EntityStatusQuery {
+  /**
+   * Get status data for a batch of entity refs, grouped by source.
+   * Returns a Map where keys are lowercased entity refs and values
+   * are objects keyed by source name.
+   *
+   * Call this only with entity refs from the current stitch batch.
+   * Calling with arbitrary refs may bypass the pre-fetch cache and
+   * cause additional database queries.
+   */
+  getStatuses(entityRefs: string[]): Promise<Map<string, Record<string, any>>>;
+}
+
+/** @alpha */
+export interface StitchingStatusMerger {
+  init?(options: { stitcher: CatalogStitcherService }): Promise<void>;
+
+  preFetch?(options: {
+    entityRefs: string[];
+    query: EntityStatusQuery;
+  }): Promise<void>;
+
+  /**
+   * Merge status data into an entity during stitching.
+   *
+   * Mergers run in registration order (custom mergers first, built-in
+   * merger last). If multiple mergers write to the same key in
+   * `entity.status`, the last merger to write wins. The built-in
+   * merger always runs last and takes precedence on conflicting keys.
+   *
+   * Source names are validated against reserved keys (e.g. `items`).
+   * Plugin authors should namespace their status keys to avoid
+   * collisions (e.g. `myPlugin.health`).
+   */
+  merge(options: {
+    entity: AlphaEntity;
+    entityRef: string;
+    query: EntityStatusQuery;
+  }): Promise<void>;
+}
+
+/** @alpha */
+export interface CatalogStitchingExtensionPoint {
+  addStitchingStatusMerger(merger: StitchingStatusMerger): void;
+}
+
+/** @alpha */
+export const catalogStitchingExtensionPoint =
+  createExtensionPoint<CatalogStitchingExtensionPoint>({
+    id: 'catalog.stitching',
   });

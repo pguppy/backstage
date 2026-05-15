@@ -364,6 +364,27 @@ export interface CatalogRequestOptions {
 }
 
 /**
+ * Request to set or update entity status from an external source.
+ *
+ * @public
+ */
+export interface SetEntityStatusRequest {
+  entityRef: string | CompoundEntityRef;
+  source: string;
+  status: Record<string, unknown>;
+}
+
+/**
+ * Request to delete entity status from a specific source.
+ *
+ * @public
+ */
+export interface DeleteEntityStatusRequest {
+  entityRef: string | CompoundEntityRef;
+  source: string;
+}
+
+/**
  * Entity location for a specific entity.
  *
  * @public
@@ -892,4 +913,33 @@ export interface CatalogApi {
     request?: StreamEntitiesRequest,
     options?: CatalogRequestOptions,
   ): AsyncIterable<Entity[]>;
+
+  /**
+   * Sets the status of an entity from an external source.
+   *
+   * The source identifies the origin of the status data (e.g.
+   * 'github-actions', 'pagerduty'). This triggers stitching according
+   * to the catalog's stitch strategy unless `stitch=skip` is passed.
+   *
+   * @param request - Request parameters
+   * @param options - Additional options
+   */
+  setEntityStatus(
+    request: SetEntityStatusRequest,
+    options?: CatalogRequestOptions,
+  ): Promise<void>;
+
+  /**
+   * Removes the status of an entity from a specific source.
+   *
+   * This triggers stitching according to the catalog's stitch strategy
+   * unless `stitch=skip` is passed.
+   *
+   * @param request - Request parameters
+   * @param options - Additional options
+   */
+  deleteEntityStatus(
+    request: DeleteEntityStatusRequest,
+    options?: CatalogRequestOptions,
+  ): Promise<void>;
 }

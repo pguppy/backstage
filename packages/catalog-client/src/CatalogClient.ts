@@ -28,6 +28,7 @@ import {
   CATALOG_FILTER_EXISTS,
   CatalogApi,
   CatalogRequestOptions,
+  DeleteEntityStatusRequest,
   EntityFilterQuery,
   GetEntitiesByRefsRequest,
   GetEntitiesByRefsResponse,
@@ -44,6 +45,7 @@ import {
   QueryLocationsInitialRequest,
   QueryLocationsRequest,
   QueryLocationsResponse,
+  SetEntityStatusRequest,
   StreamEntitiesRequest,
   ValidateEntityResponse,
 } from './types/api';
@@ -728,6 +730,50 @@ export class CatalogClient implements CatalogApi {
 
       cursor = res.pageInfo.nextCursor;
     } while (cursor);
+  }
+
+  /**
+   * {@inheritdoc CatalogApi.setEntityStatus}
+   */
+  async setEntityStatus(
+    request: SetEntityStatusRequest,
+    options?: CatalogRequestOptions,
+  ): Promise<void> {
+    const { kind, namespace, name } = parseEntityRef(request.entityRef);
+    const response = await this.apiClient.updateEntityStatusByName(
+      {
+        path: { kind, namespace, name },
+        body: {
+          source: request.source,
+          status: request.status as any,
+        },
+        query: {},
+      },
+      options,
+    );
+    if (!response.ok) {
+      throw await ResponseError.fromResponse(response);
+    }
+  }
+
+  /**
+   * {@inheritdoc CatalogApi.deleteEntityStatus}
+   */
+  async deleteEntityStatus(
+    request: DeleteEntityStatusRequest,
+    options?: CatalogRequestOptions,
+  ): Promise<void> {
+    const { kind, namespace, name } = parseEntityRef(request.entityRef);
+    const response = await this.apiClient.deleteEntityStatusByName(
+      {
+        path: { kind, namespace, name },
+        query: { source: request.source },
+      },
+      options,
+    );
+    if (!response.ok) {
+      throw await ResponseError.fromResponse(response);
+    }
   }
 
   // #region Private methods

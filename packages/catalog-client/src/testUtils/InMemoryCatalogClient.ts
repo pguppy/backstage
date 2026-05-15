@@ -19,6 +19,7 @@ import {
   AddLocationResponse,
   CATALOG_FILTER_EXISTS,
   CatalogApi,
+  DeleteEntityStatusRequest,
   EntityFilterQuery,
   EntityOrderQuery,
   GetEntitiesByRefsRequest,
@@ -36,6 +37,7 @@ import {
   QueryLocationsInitialRequest,
   QueryLocationsRequest,
   QueryLocationsResponse,
+  SetEntityStatusRequest,
   StreamEntitiesRequest,
   ValidateEntityResponse,
 } from '@backstage/catalog-client';
@@ -624,6 +626,14 @@ export class InMemoryCatalogClient implements CatalogApi {
 
       cursor = res.pageInfo.nextCursor;
     } while (cursor);
+  }
+
+  async setEntityStatus(_request: SetEntityStatusRequest): Promise<void> {
+    throw new NotImplementedError('Method not implemented.');
+  }
+
+  async deleteEntityStatus(_request: DeleteEntityStatusRequest): Promise<void> {
+    throw new NotImplementedError('Method not implemented.');
   }
 
   #createEntityRefMap() {

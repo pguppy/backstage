@@ -41,6 +41,10 @@ import {
   CatalogModelExtensionPoint,
   catalogModelExtensionPoint,
   catalogScmEventsServiceRef,
+  CatalogStitcherService,
+  CatalogStitchingExtensionPoint,
+  catalogStitchingExtensionPoint,
+  StitchingStatusMerger,
 } from '@backstage/plugin-catalog-node/alpha';
 import { eventsServiceRef } from '@backstage/plugin-events-node';
 import { merge } from 'lodash';
@@ -48,6 +52,7 @@ import { createCatalogActions } from '../actions';
 import { ModelHolder } from '../model/ModelHolder';
 import type { EntityProviderEntry } from '../processing/connectEntityProviders';
 import { CatalogBuilder } from './CatalogBuilder';
+import { _setStitcher } from './CatalogStitcherServiceFactory';
 
 class CatalogLocationsExtensionPointImpl
   implements CatalogLocationsExtensionPoint
@@ -97,6 +102,47 @@ class CatalogModelExtensionPointImpl implements CatalogModelExtensionPoint {
 
   get modelSources() {
     return this.#modelSources;
+  }
+}
+
+class CatalogStitchingExtensionPointImpl
+  implements CatalogStitchingExtensionPoint
+{
+  #mergers = new Array<StitchingStatusMerger>();
+  #stitcher?: CatalogStitcherService;
+  #initPromises = new Array<Promise<void>>();
+
+  addStitchingStatusMerger(merger: StitchingStatusMerger): void {
+    this.#mergers.push(merger);
+    if (this.#stitcher && merger.init) {
+      this.#initPromises.push(
+        merger.init({ stitcher: this.#stitcher }).catch(e => {
+          console.error(`Failed to initialize StitchingStatusMerger: ${e}`);
+        }),
+      );
+    }
+  }
+
+  get mergers() {
+    return this.#mergers;
+  }
+
+  setStitcher(stitcher: CatalogStitcherService) {
+    this.#stitcher = stitcher;
+    for (const merger of this.#mergers) {
+      if (merger.init) {
+        this.#initPromises.push(
+          merger.init({ stitcher }).catch(e => {
+            console.error(`Failed to initialize StitchingStatusMerger: ${e}`);
+          }),
+        );
+      }
+    }
+  }
+
+  async initMergers(): Promise<void> {
+    await Promise.all(this.#initPromises);
+    this.#initPromises.length = 0;
   }
 }
 
@@ -171,6 +217,12 @@ export const catalogPlugin = createBackendPlugin({
 
     const modelExtensions = new CatalogModelExtensionPointImpl();
     env.registerExtensionPoint(catalogModelExtensionPoint, modelExtensions);
+
+    const stitchingExtensions = new CatalogStitchingExtensionPointImpl();
+    env.registerExtensionPoint(
+      catalogStitchingExtensionPoint,
+      stitchingExtensions,
+    );
 
     const locationTypeExtensions = new CatalogLocationsExtensionPointImpl();
     env.registerExtensionPoint(
@@ -273,10 +325,16 @@ export const catalogPlugin = createBackendPlugin({
           );
         }
 
-        const { processingEngine, router } = await builder.build();
+        builder.setStitchingStatusMergers(stitchingExtensions.mergers);
+
+        const { processingEngine, router, stitcher } = await builder.build();
+
+        stitchingExtensions.setStitcher(stitcher);
+        _setStitcher(stitcher);
 
         if (config.getOptional('catalog.processingInterval') ?? true) {
           lifecycle.addStartupHook(async () => {
+            await stitchingExtensions.initMergers();
             await processingEngine.start();
           });
           lifecycle.addShutdownHook(() => processingEngine.stop());

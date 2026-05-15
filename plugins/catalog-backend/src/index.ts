@@ -21,5 +21,6 @@
  */
 
 export { catalogPlugin as default } from './service/CatalogPlugin';
+export { catalogStitcherServiceFactory } from './service/CatalogStitcherServiceFactory';
 export * from './processors';
 export * from './constants';

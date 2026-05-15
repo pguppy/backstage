@@ -1004,6 +1004,193 @@ paths:
         - $ref: '#/components/parameters/kind'
         - $ref: '#/components/parameters/namespace'
         - $ref: '#/components/parameters/name'
+  /entities/by-name/{kind}/{namespace}/{name}/status:
+    get:
+      operationId: GetEntityStatusSourcesByName
+      tags:
+        - Entity
+      description: List the status sources for an entity.
+      responses:
+        '200':
+          description: List of status sources.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sources:
+                    type: array
+                    items:
+                      type: string
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+      security:
+        - JWT: []
+      parameters:
+        - $ref: '#/components/parameters/kind'
+        - $ref: '#/components/parameters/namespace'
+        - $ref: '#/components/parameters/name'
+    post:
+      operationId: UpdateEntityStatusByName
+      tags:
+        - Entity
+      description: Update the status of an entity from an external source.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - source
+                - status
+              properties:
+                source:
+                  type: string
+                  description: The source of the status update.
+                status:
+                  type: object
+                  description: The status data to merge into the entity.
+      responses:
+        '204':
+          description: >
+            Status updated successfully. A stitch is triggered by default.
+            Pass `?stitch=skip` to write status without triggering a stitch.
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+      security:
+        - JWT: []
+      parameters:
+        - $ref: '#/components/parameters/kind'
+        - $ref: '#/components/parameters/namespace'
+        - $ref: '#/components/parameters/name'
+        - name: stitch
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - skip
+          description: >
+            When set to `skip`, the status is written but no stitch is triggered.
+            The caller is responsible for triggering a stitch separately.
+    delete:
+      operationId: DeleteEntityStatusByName
+      tags:
+        - Entity
+      description: Delete the status of an entity from a specific external source.
+      parameters:
+        - $ref: '#/components/parameters/kind'
+        - $ref: '#/components/parameters/namespace'
+        - $ref: '#/components/parameters/name'
+        - name: source
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The source of the status to delete.
+        - name: stitch
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - skip
+          description: >
+            When set to `skip`, the status is deleted but no stitch is triggered.
+      responses:
+        '204':
+          description: Status deleted successfully.
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+      security:
+        - JWT: []
+  /entities/status-batch:
+    post:
+      operationId: BatchUpdateEntityStatus
+      tags:
+        - Entity
+      description: >
+        Batch write status for multiple entities. Validates all entries,
+        writes statuses, and triggers a single stitch for all affected
+        entities. Returns 207 with per-entry results if any entry fails,
+        or 204 if all succeed. Pass `?stitch=skip` to write without
+        triggering a stitch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1
+              maxItems: 100
+              items:
+                type: object
+                required:
+                  - entityRef
+                  - source
+                  - status
+                properties:
+                  entityRef:
+                    type: string
+                    description: >
+                      Entity reference, e.g. `component:default/my-api`.
+                  source:
+                    type: string
+                    description: The source of the status update.
+                  status:
+                    type: object
+                    description: The status data to merge into the entity.
+      responses:
+        '204':
+          description: All status updates applied successfully.
+        '207':
+          description: >
+            Multi-status response. Some entries succeeded and some failed.
+            The `results` array contains per-entry outcomes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - entityRef
+                        - ok
+                      properties:
+                        entityRef:
+                          type: string
+                        ok:
+                          type: boolean
+                        error:
+                          type: string
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+      security:
+        - JWT: []
+      parameters:
+        - name: stitch
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - skip
+          description: >
+            When set to `skip`, statuses are written but no stitch is triggered.
   /entities/by-refs:
     post:
       operationId: GetEntitiesByRefs

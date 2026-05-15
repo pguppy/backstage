@@ -44,6 +44,7 @@ describe('Stitcher', () => {
         logger,
         strategy: { mode: 'immediate' },
         metrics: metricsServiceMock.mock(),
+        statusStore: { getStatuses: async () => new Map() } as any,
       });
       let entities: DbFinalEntitiesRow[];
       let entity: Entity;

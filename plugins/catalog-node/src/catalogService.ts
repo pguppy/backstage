@@ -166,6 +166,19 @@ export interface CatalogService {
     request: StreamEntitiesRequest | undefined,
     options: CatalogServiceRequestOptions,
   ): AsyncIterable<Entity[]>;
+
+  setEntityStatus(
+    entityRef: string | CompoundEntityRef,
+    source: string,
+    status: Record<string, unknown>,
+    options: CatalogServiceRequestOptions,
+  ): Promise<void>;
+
+  deleteEntityStatus(
+    entityRef: string | CompoundEntityRef,
+    source: string,
+    options: CatalogServiceRequestOptions,
+  ): Promise<void>;
 }
 
 class DefaultCatalogService implements CatalogService {
@@ -383,6 +396,29 @@ class DefaultCatalogService implements CatalogService {
   ): AsyncIterable<Entity[]> {
     yield* this.#catalogApi.streamEntities(
       request,
+      await this.#getOptions(options),
+    );
+  }
+
+  async setEntityStatus(
+    entityRef: string | CompoundEntityRef,
+    source: string,
+    status: Record<string, unknown>,
+    options: CatalogServiceRequestOptions,
+  ): Promise<void> {
+    await this.#catalogApi.setEntityStatus(
+      { entityRef, source, status },
+      await this.#getOptions(options),
+    );
+  }
+
+  async deleteEntityStatus(
+    entityRef: string | CompoundEntityRef,
+    source: string,
+    options: CatalogServiceRequestOptions,
+  ): Promise<void> {
+    await this.#catalogApi.deleteEntityStatus(
+      { entityRef, source },
       await this.#getOptions(options),
     );
   }

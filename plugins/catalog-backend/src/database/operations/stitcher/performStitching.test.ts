@@ -26,6 +26,7 @@ import {
 } from '../../tables';
 import { markForStitching } from './markForStitching';
 import { performStitching } from './performStitching';
+import { DefaultCatalogStatusStore } from '../../DefaultCatalogStatusStore';
 
 jest.setTimeout(60_000);
 
@@ -100,6 +101,9 @@ describe('performStitching', () => {
         logger,
         strategy: deferredStrategy,
         entityRef: 'k:ns/n',
+        statusStore: {
+          getStatuses: async () => new Map(),
+        } as any as DefaultCatalogStatusStore,
         stitchTicket: (
           await knex('stitch_queue')
             .where('entity_ref', 'k:ns/n')
@@ -197,6 +201,9 @@ describe('performStitching', () => {
         logger,
         strategy: deferredStrategy,
         entityRef: 'k:ns/n',
+        statusStore: {
+          getStatuses: async () => new Map(),
+        } as any as DefaultCatalogStatusStore,
         stitchTicket: (
           await knex('stitch_queue')
             .where('entity_ref', 'k:ns/n')
@@ -232,6 +239,9 @@ describe('performStitching', () => {
         logger,
         strategy: deferredStrategy,
         entityRef: 'k:ns/n',
+        statusStore: {
+          getStatuses: async () => new Map(),
+        } as any as DefaultCatalogStatusStore,
         stitchTicket: (
           await knex('stitch_queue')
             .where('entity_ref', 'k:ns/n')
@@ -384,6 +394,9 @@ describe('performStitching', () => {
           logger: stitchLogger,
           strategy: { mode: 'immediate' },
           entityRef: 'k:ns/n',
+          statusStore: {
+            getStatuses: async () => new Map(),
+          } as any as DefaultCatalogStatusStore,
         }),
       ).resolves.toBe('abandoned');
 
@@ -437,6 +450,9 @@ describe('performStitching', () => {
           logger: stitchLogger,
           strategy: { mode: 'immediate' },
           entityRef: 'k:ns/n',
+          statusStore: {
+            getStatuses: async () => new Map(),
+          } as any as DefaultCatalogStatusStore,
         }),
       ).resolves.toBe('changed');
 

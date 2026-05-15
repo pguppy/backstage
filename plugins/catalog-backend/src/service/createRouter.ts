@@ -29,7 +29,17 @@ import {
   stringifyEntityRef,
 } from '@backstage/catalog-model';
 import { Config } from '@backstage/config';
-import { InputError, serializeError } from '@backstage/errors';
+import {
+  InputError,
+  NotAllowedError,
+  NotFoundError,
+  serializeError,
+} from '@backstage/errors';
+import { AuthorizeResult } from '@backstage/plugin-permission-common';
+import {
+  catalogEntityStatusWritePermission,
+  catalogEntityReadPermission,
+} from '@backstage/plugin-catalog-common/alpha';
 import { LocationAnalyzer } from '@backstage/plugin-catalog-node';
 import express from 'express';
 import yn from 'yn';
@@ -56,6 +66,9 @@ import {
   writeSingleEntityResponse,
 } from './response';
 import { LocationService, RefreshService } from './types';
+import { DefaultCatalogStatusStore } from '../database/DefaultCatalogStatusStore';
+import { Stitcher } from '../stitching/types';
+import { validateStatusPayload, validateSource } from '../util/status';
 import {
   disallowReadonlyMode,
   encodeCursor,
@@ -77,6 +90,8 @@ export interface RouterOptions {
   locationService: LocationService;
   orchestrator: CatalogProcessingOrchestrator;
   refreshService?: RefreshService;
+  statusStore: DefaultCatalogStatusStore;
+  stitcher: Stitcher;
   logger: LoggerService;
   config: Config;
   auth: AuthService;
@@ -105,6 +120,8 @@ export async function createRouter(
     locationService,
     orchestrator,
     refreshService,
+    statusStore,
+    stitcher,
     config,
     logger,
     permissionsService,
@@ -970,6 +987,284 @@ export async function createRouter(
       await auditorEvent?.fail({
         error: err,
       });
+      throw err;
+    }
+  });
+
+  router.get(
+    '/entities/by-name/:kind/:namespace/:name/status',
+    async (req, res) => {
+      const { kind, namespace, name } = req.params;
+      const entityRef = stringifyEntityRef({ kind, namespace, name });
+
+      const credentials = await httpAuth.credentials(req);
+
+      const decision = await permissionsService.authorize(
+        [
+          {
+            permission: catalogEntityReadPermission,
+            resourceRef: entityRef,
+          },
+        ],
+        { credentials },
+      );
+
+      if (decision[0].result !== AuthorizeResult.ALLOW) {
+        throw new NotAllowedError('Unauthorized to read status');
+      }
+
+      const { items } = await entitiesCatalog!.entitiesBatch({
+        entityRefs: [entityRef],
+        credentials,
+      });
+
+      if (!items.entities[0]) {
+        throw new NotFoundError(`Entity not found: ${entityRef}`);
+      }
+
+      const sources = await statusStore.listSources(entityRef);
+      res.json({ sources });
+    },
+  );
+
+  router.post(
+    '/entities/by-name/:kind/:namespace/:name/status',
+    async (req, res) => {
+      const { kind, namespace, name } = req.params;
+      const entityRef = stringifyEntityRef({ kind, namespace, name });
+
+      const auditorEvent = await auditor.createEvent({
+        eventId: 'entity-mutate',
+        severityLevel: 'medium',
+        request: req,
+        meta: {
+          actionType: 'status-update',
+          entityRef,
+        },
+      });
+
+      try {
+        disallowReadonlyMode(readonlyEnabled);
+
+        const credentials = await httpAuth.credentials(req);
+
+        const decision = await permissionsService.authorize(
+          [
+            {
+              permission: catalogEntityStatusWritePermission,
+              resourceRef: entityRef,
+            },
+          ],
+          { credentials },
+        );
+
+        if (decision[0].result !== AuthorizeResult.ALLOW) {
+          throw new NotAllowedError('Unauthorized to update status');
+        }
+
+        const { items } = await entitiesCatalog!.entitiesBatch({
+          entityRefs: [entityRef],
+          credentials,
+        });
+
+        if (!items.entities[0]) {
+          throw new NotFoundError(`Entity not found: ${entityRef}`);
+        }
+
+        const { source, status } = await validateRequestBody(
+          req,
+          z.object({
+            source: z.string().min(1).max(128),
+            status: z.record(z.any()),
+          }),
+        );
+
+        validateSource(source);
+        validateStatusPayload(status);
+
+        await statusStore.setStatus(entityRef, source, status);
+
+        if ((req as any).query.stitch !== 'skip') {
+          await stitcher.stitch({ entityRefs: [entityRef] });
+        }
+
+        await auditorEvent?.success();
+
+        res.status(204).end();
+      } catch (err) {
+        await auditorEvent?.fail({ error: err });
+        throw err;
+      }
+    },
+  );
+
+  router.delete(
+    '/entities/by-name/:kind/:namespace/:name/status',
+    async (req, res) => {
+      const { kind, namespace, name } = req.params;
+      const entityRef = stringifyEntityRef({ kind, namespace, name });
+      const source = req.query.source as string;
+
+      const auditorEvent = await auditor.createEvent({
+        eventId: 'entity-mutate',
+        severityLevel: 'medium',
+        request: req,
+        meta: {
+          actionType: 'status-delete',
+          entityRef,
+        },
+      });
+
+      try {
+        disallowReadonlyMode(readonlyEnabled);
+
+        if (!source) {
+          throw new InputError('source query parameter is required');
+        }
+
+        validateSource(source);
+
+        const credentials = await httpAuth.credentials(req);
+
+        const decision = await permissionsService.authorize(
+          [
+            {
+              permission: catalogEntityStatusWritePermission,
+              resourceRef: entityRef,
+            },
+          ],
+          { credentials },
+        );
+
+        if (decision[0].result !== AuthorizeResult.ALLOW) {
+          throw new NotAllowedError('Unauthorized to delete status');
+        }
+
+        const { items } = await entitiesCatalog!.entitiesBatch({
+          entityRefs: [entityRef],
+          credentials,
+        });
+
+        if (!items.entities[0]) {
+          throw new NotFoundError(`Entity not found: ${entityRef}`);
+        }
+
+        const deleted = await statusStore.deleteStatus(entityRef, source);
+        if (deleted === 0) {
+          throw new NotFoundError(
+            `No status found for entity ${entityRef} from source ${source}`,
+          );
+        }
+        if ((req as any).query.stitch !== 'skip') {
+          await stitcher.stitch({ entityRefs: [entityRef] });
+        }
+
+        await auditorEvent?.success();
+
+        res.status(204).end();
+      } catch (err) {
+        await auditorEvent?.fail({ error: err });
+        throw err;
+      }
+    },
+  );
+
+  router.post('/entities/status-batch', async (req, res) => {
+    const auditorEvent = await auditor.createEvent({
+      eventId: 'entity-mutate',
+      severityLevel: 'medium',
+      request: req,
+      meta: {
+        actionType: 'status-batch-update',
+      },
+    });
+
+    try {
+      disallowReadonlyMode(readonlyEnabled);
+
+      const credentials = await httpAuth.credentials(req);
+
+      const entries = await validateRequestBody(
+        req,
+        z
+          .array(
+            z.object({
+              entityRef: z.string().min(1),
+              source: z.string().min(1).max(128),
+              status: z.record(z.any()),
+            }),
+          )
+          .min(1)
+          .max(100),
+      );
+
+      const results: Array<{ entityRef: string; ok: boolean; error?: string }> =
+        [];
+      const entityRefsToStitch = new Set<string>();
+
+      for (const entry of entries) {
+        const { entityRef, source, status } = entry;
+        try {
+          const decision = await permissionsService.authorize(
+            [
+              {
+                permission: catalogEntityStatusWritePermission,
+                resourceRef: entityRef,
+              },
+            ],
+            { credentials },
+          );
+
+          if (decision[0].result !== AuthorizeResult.ALLOW) {
+            results.push({ entityRef, ok: false, error: 'Unauthorized' });
+            continue;
+          }
+
+          const { items } = await entitiesCatalog!.entitiesBatch({
+            entityRefs: [entityRef],
+            credentials,
+          });
+
+          if (!items.entities[0]) {
+            results.push({
+              entityRef,
+              ok: false,
+              error: `Entity not found: ${entityRef}`,
+            });
+            continue;
+          }
+
+          validateSource(source);
+          validateStatusPayload(status);
+
+          await statusStore.setStatus(entityRef, source, status);
+          entityRefsToStitch.add(entityRef);
+          results.push({ entityRef, ok: true });
+        } catch (err) {
+          results.push({
+            entityRef,
+            ok: false,
+            error: err.message ?? String(err),
+          });
+        }
+      }
+
+      const hasErrors = results.some(r => !r.ok);
+      const skipStitch = (req as any).query.stitch === 'skip';
+
+      if (!skipStitch && entityRefsToStitch.size > 0) {
+        await stitcher.stitch({ entityRefs: [...entityRefsToStitch] });
+      }
+
+      await auditorEvent?.success();
+
+      if (hasErrors) {
+        res.status(207).json({ results });
+      } else {
+        res.status(204).end();
+      }
+    } catch (err) {
+      await auditorEvent?.fail({ error: err });
       throw err;
     }
   });

@@ -32,6 +32,12 @@ import {
 } from './types';
 import { LoggerService } from '@backstage/backend-plugin-api';
 import { MetricsService } from '@backstage/backend-plugin-api/alpha';
+import {
+  StitchingStatusMerger,
+  EntityStatusQuery,
+} from '@backstage/plugin-catalog-node/alpha';
+import { DefaultCatalogStatusStore } from '../database/DefaultCatalogStatusStore';
+import { JsonObject } from '@backstage/types';
 
 type DeferredStitchItem = Awaited<
   ReturnType<typeof getDeferredStitchableEntities>
@@ -48,7 +54,10 @@ export class DefaultStitcher implements Stitcher {
   private readonly knex: Knex;
   private readonly logger: LoggerService;
   private readonly strategy: StitchingStrategy;
+  private readonly stitchingStatusMergers: StitchingStatusMerger[];
+  private readonly statusStore: DefaultCatalogStatusStore;
   private readonly tracker: StitchProgressTracker;
+  #cleanupCounter = 0;
   private stopFunc?: () => void;
 
   static fromConfig(
@@ -57,6 +66,8 @@ export class DefaultStitcher implements Stitcher {
       knex: Knex;
       logger: LoggerService;
       metrics: MetricsService;
+      stitchingStatusMergers?: StitchingStatusMerger[];
+      statusStore: DefaultCatalogStatusStore;
     },
   ): DefaultStitcher {
     return new DefaultStitcher({
@@ -64,6 +75,8 @@ export class DefaultStitcher implements Stitcher {
       logger: options.logger,
       metrics: options.metrics,
       strategy: stitchingStrategyFromConfig(config),
+      stitchingStatusMergers: options.stitchingStatusMergers,
+      statusStore: options.statusStore,
     });
   }
 
@@ -72,15 +85,47 @@ export class DefaultStitcher implements Stitcher {
     logger: LoggerService;
     metrics: MetricsService;
     strategy: StitchingStrategy;
+    stitchingStatusMergers?: StitchingStatusMerger[];
+    statusStore: DefaultCatalogStatusStore;
   }) {
     this.knex = options.knex;
     this.logger = options.logger;
     this.strategy = options.strategy;
+    this.stitchingStatusMergers = options.stitchingStatusMergers ?? [];
+    this.statusStore = options.statusStore;
     this.tracker = progressTracker(
       options.knex,
       options.logger,
       options.metrics,
     );
+  }
+
+  private async preFetchStatus(
+    entityRefs: string[],
+  ): Promise<Map<string, Record<string, JsonObject>>> {
+    if (!this.stitchingStatusMergers?.length || entityRefs.length === 0) {
+      return new Map();
+    }
+
+    const statuses = await this.statusStore.getStatuses(entityRefs);
+
+    const query: EntityStatusQuery = {
+      getStatuses: async (refs: string[]) => {
+        return this.statusStore.getStatuses(refs);
+      },
+    };
+
+    for (const merger of this.stitchingStatusMergers) {
+      if (merger.preFetch) {
+        try {
+          await merger.preFetch({ entityRefs, query });
+        } catch (error) {
+          this.logger.warn('StitchingStatusMerger preFetch failed', error);
+        }
+      }
+    }
+
+    return statuses;
   }
 
   async stitch(options: {
@@ -100,8 +145,11 @@ export class DefaultStitcher implements Stitcher {
     }
 
     if (entityRefs) {
-      for (const entityRef of entityRefs) {
-        await this.#stitchOne({ entityRef });
+      const refs = Array.isArray(entityRefs) ? entityRefs : [...entityRefs];
+      // Direct stitch calls (e.g. from REST API) read fresh status from the
+      // store to avoid serving stale data from a previous prefetch cycle.
+      for (const entityRef of refs) {
+        await this.#stitchOne({ entityRef, prefetchedStatuses: new Map() });
       }
     }
 
@@ -114,8 +162,16 @@ export class DefaultStitcher implements Stitcher {
         const rows = await this.knex<DbRefreshStateRow>('refresh_state')
           .select('entity_ref')
           .whereIn('entity_id', chunk);
+
+        const prefetchedStatuses = await this.preFetchStatus(
+          rows.map(r => r.entity_ref),
+        );
+
         for (const row of rows) {
-          await this.#stitchOne({ entityRef: row.entity_ref });
+          await this.#stitchOne({
+            entityRef: row.entity_ref,
+            prefetchedStatuses,
+          });
         }
       }
     }
@@ -129,18 +185,42 @@ export class DefaultStitcher implements Stitcher {
 
       const { pollingInterval, stitchTimeout } = this.strategy;
 
-      const stopPipeline = startTaskPipeline<DeferredStitchItem>({
+      const stopPipeline = startTaskPipeline<
+        DeferredStitchItem & {
+          prefetchedStatuses: Map<string, Record<string, JsonObject>>;
+        }
+      >({
         lowWatermark: 2,
         highWatermark: 5,
         pollingIntervalMs: durationToMilliseconds(pollingInterval),
         loadTasks: async count => {
-          return await this.#getStitchableEntities(count, stitchTimeout);
+          const items = await this.#getStitchableEntities(count, stitchTimeout);
+          const prefetchedStatuses = await this.preFetchStatus(
+            items.map(i => i.entityRef),
+          );
+
+          if (++this.#cleanupCounter % 10 === 0) {
+            try {
+              const cleaned = await this.statusStore.cleanOrphanedStatuses();
+              if (cleaned > 0) {
+                this.logger.debug(`Cleaned up ${cleaned} orphaned status rows`);
+              }
+            } catch (error) {
+              this.logger.warn(
+                'Failed to clean up orphaned status rows',
+                error,
+              );
+            }
+          }
+
+          return items.map(item => ({ ...item, prefetchedStatuses }));
         },
         processTask: async item => {
           return await this.#stitchOne({
             entityRef: item.entityRef,
             stitchTicket: item.stitchTicket,
             stitchRequestedAt: item.stitchRequestedAt,
+            prefetchedStatuses: item.prefetchedStatuses,
           });
         },
       });
@@ -177,6 +257,7 @@ export class DefaultStitcher implements Stitcher {
     entityRef: string;
     stitchTicket?: string;
     stitchRequestedAt?: DateTime;
+    prefetchedStatuses?: Map<string, Record<string, JsonObject>>;
   }) {
     const track = this.tracker.stitchStart({
       entityRef: options.entityRef,
@@ -190,6 +271,9 @@ export class DefaultStitcher implements Stitcher {
         strategy: this.strategy,
         entityRef: options.entityRef,
         stitchTicket: options.stitchTicket,
+        stitchingStatusMergers: this.stitchingStatusMergers,
+        statusStore: this.statusStore,
+        prefetchedStatuses: options.prefetchedStatuses ?? new Map(),
       });
       track.markComplete(result);
     } catch (error) {

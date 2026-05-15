@@ -51,6 +51,11 @@ import {
   PlaceholderResolver,
   ScmLocationAnalyzer,
 } from '@backstage/plugin-catalog-node';
+import {
+  StitchingStatusMerger,
+  EntityStatusQuery,
+} from '@backstage/plugin-catalog-node/alpha';
+import { DefaultCatalogStatusStore } from '../database/DefaultCatalogStatusStore';
 import { EventsService } from '@backstage/plugin-events-node';
 import { createConditionTransformer } from '@backstage/plugin-permission-node';
 import { durationToMilliseconds } from '@backstage/types';
@@ -88,6 +93,7 @@ import {
 import { ConfigLocationEntityProvider } from '../providers/ConfigLocationEntityProvider';
 import { DefaultLocationStore } from '../providers/DefaultLocationStore';
 import { DefaultStitcher } from '../stitching/DefaultStitcher';
+import { Stitcher } from '../stitching/types';
 import { defaultEntityDataParser } from '../util/parse';
 import { AuthorizedEntitiesCatalog } from './AuthorizedEntitiesCatalog';
 import { AuthorizedLocationAnalyzer } from './AuthorizedLocationAnalyzer';
@@ -108,6 +114,32 @@ import { readScmEventHandlingConfig } from '../util/readScmEventHandlingConfig';
 import { MetricsService } from '@backstage/backend-plugin-api/alpha';
 import { ModelProcessor } from '../processors/ModelProcessor';
 import { ModelHolder } from '../model/ModelHolder';
+import { AlphaEntity } from '@backstage/catalog-model/alpha';
+
+class BuiltinStatusMerger implements StitchingStatusMerger {
+  async preFetch(_options: {
+    entityRefs: string[];
+    query: EntityStatusQuery;
+  }): Promise<void> {
+    // No-op: data is pre-fetched by DefaultStitcher and served
+    // through the EntityStatusQuery cache passed to merge().
+  }
+
+  async merge(options: {
+    entity: AlphaEntity;
+    entityRef: string;
+    query: EntityStatusQuery;
+  }): Promise<void> {
+    const statuses = await options.query.getStatuses([options.entityRef]);
+    const statusData = statuses.get(options.entityRef.toLowerCase());
+    if (statusData) {
+      options.entity.status = {
+        ...options.entity.status,
+        ...statusData,
+      };
+    }
+  }
+}
 
 export type CatalogEnvironment = {
   logger: LoggerService;
@@ -169,6 +201,7 @@ export class CatalogBuilder {
   private processingInterval: ProcessingIntervalFunction;
   private locationAnalyzer: LocationAnalyzer | undefined = undefined;
   private allowedLocationType: string[];
+  private stitchingStatusMergers: StitchingStatusMerger[] = [];
 
   /**
    * Creates a catalog builder.
@@ -373,11 +406,38 @@ export class CatalogBuilder {
   }
 
   /**
+   * Adds a status merger for stitching out-of-band data into entities.
+   *
+   * Custom mergers are called before the built-in status merger, which
+   * runs last and takes precedence for conflicting keys. If multiple
+   * custom mergers write to the same `entity.status` key, the last one
+   * registered wins among custom mergers, but the built-in merger
+   * always overrides on conflict.
+   *
+   * @param merger - The status merger to add
+   */
+  addStitchingStatusMerger(merger: StitchingStatusMerger): CatalogBuilder {
+    this.stitchingStatusMergers.push(merger);
+    return this;
+  }
+
+  /**
+   * Sets the status mergers for stitching out-of-band data into entities.
+   *
+   * @param mergers - The status mergers to use
+   */
+  setStitchingStatusMergers(mergers: StitchingStatusMerger[]): CatalogBuilder {
+    this.stitchingStatusMergers = mergers;
+    return this;
+  }
+
+  /**
    * Wires up and returns all of the component parts of the catalog
    */
   async build(): Promise<{
     processingEngine: CatalogProcessingEngine;
     router: Router;
+    stitcher: Stitcher;
   }> {
     const {
       config,
@@ -408,10 +468,16 @@ export class CatalogBuilder {
       await applyDatabaseMigrations(dbClient);
     }
 
+    const statusStore = new DefaultCatalogStatusStore(dbClient, logger);
+
+    this.addStitchingStatusMerger(new BuiltinStatusMerger());
+
     const stitcher = DefaultStitcher.fromConfig(config, {
       knex: dbClient,
       logger,
       metrics,
+      stitchingStatusMergers: this.stitchingStatusMergers,
+      statusStore,
     });
 
     const processingDatabase = new DefaultProcessingDatabase({
@@ -548,6 +614,8 @@ export class CatalogBuilder {
       locationService,
       orchestrator,
       refreshService,
+      statusStore,
+      stitcher,
       logger,
       config,
       auth,
@@ -581,6 +649,7 @@ export class CatalogBuilder {
         },
       },
       router,
+      stitcher,
     };
   }
 

@@ -23,15 +23,19 @@ import { FetchApi } from '../types/fetch';
 import crossFetch from 'cross-fetch';
 import { pluginId } from '../pluginId';
 import * as parser from 'uri-template';
+import { BatchUpdateEntityStatus207Response } from '../models/BatchUpdateEntityStatus207Response.model';
+import { BatchUpdateEntityStatusRequestInner } from '../models/BatchUpdateEntityStatusRequestInner.model';
 import { EntitiesBatchResponse } from '../models/EntitiesBatchResponse.model';
 import { EntitiesQueryResponse } from '../models/EntitiesQueryResponse.model';
 import { Entity } from '../models/Entity.model';
 import { EntityAncestryResponse } from '../models/EntityAncestryResponse.model';
 import { EntityFacetsResponse } from '../models/EntityFacetsResponse.model';
 import { GetEntitiesByRefsRequest } from '../models/GetEntitiesByRefsRequest.model';
+import { GetEntityStatusSourcesByName200Response } from '../models/GetEntityStatusSourcesByName200Response.model';
 import { QueryEntitiesByPredicateRequest } from '../models/QueryEntitiesByPredicateRequest.model';
 import { QueryEntityFacetsByPredicateRequest } from '../models/QueryEntityFacetsByPredicateRequest.model';
 import { RefreshEntityRequest } from '../models/RefreshEntityRequest.model';
+import { UpdateEntityStatusByNameRequest } from '../models/UpdateEntityStatusByNameRequest.model';
 import { ValidateEntityRequest } from '../models/ValidateEntityRequest.model';
 import { AnalyzeLocationRequest } from '../models/AnalyzeLocationRequest.model';
 import { AnalyzeLocationResponse } from '../models/AnalyzeLocationResponse.model';
@@ -63,9 +67,32 @@ export interface RequestOptions {
 /**
  * @public
  */
+export type BatchUpdateEntityStatus = {
+  body: Array<BatchUpdateEntityStatusRequestInner>;
+  query: {
+    stitch?: 'skip';
+  };
+};
+/**
+ * @public
+ */
 export type DeleteEntityByUid = {
   path: {
     uid: string;
+  };
+};
+/**
+ * @public
+ */
+export type DeleteEntityStatusByName = {
+  path: {
+    kind: string;
+    namespace: string;
+    name: string;
+  };
+  query: {
+    source: string;
+    stitch?: 'skip';
   };
 };
 /**
@@ -145,6 +172,16 @@ export type GetEntityFacets = {
 /**
  * @public
  */
+export type GetEntityStatusSourcesByName = {
+  path: {
+    kind: string;
+    namespace: string;
+    name: string;
+  };
+};
+/**
+ * @public
+ */
 export type QueryEntitiesByPredicate = {
   body: QueryEntitiesByPredicateRequest;
 };
@@ -159,6 +196,20 @@ export type QueryEntityFacetsByPredicate = {
  */
 export type RefreshEntity = {
   body: RefreshEntityRequest;
+};
+/**
+ * @public
+ */
+export type UpdateEntityStatusByName = {
+  path: {
+    kind: string;
+    namespace: string;
+    name: string;
+  };
+  body: UpdateEntityStatusByNameRequest;
+  query: {
+    stitch?: 'skip';
+  };
 };
 /**
  * @public
@@ -244,6 +295,34 @@ export class DefaultApiClient {
   }
 
   /**
+   * Batch write status for multiple entities. Validates all entries, writes statuses, and triggers a single stitch for all affected entities. Returns 207 with per-entry results if any entry fails, or 204 if all succeed. Pass `?stitch=skip` to write without triggering a stitch.
+   * @param batchUpdateEntityStatusRequestInner -
+   * @param stitch - When set to &#x60;skip&#x60;, statuses are written but no stitch is triggered.
+   */
+  public async batchUpdateEntityStatus(
+    // @ts-ignore
+    request: BatchUpdateEntityStatus,
+    options?: RequestOptions,
+  ): Promise<TypedResponse<BatchUpdateEntityStatus207Response | void>> {
+    const baseUrl = await this.discoveryApi.getBaseUrl(pluginId);
+
+    const uriTemplate = `/entities/status-batch{?stitch}`;
+
+    const uri = parser.parse(uriTemplate).expand({
+      ...request.query,
+    });
+
+    return await this.fetchApi.fetch(`${baseUrl}${uri}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.token && { Authorization: `Bearer ${options?.token}` }),
+      },
+      method: 'POST',
+      body: JSON.stringify(request.body),
+    });
+  }
+
+  /**
    * Delete a single entity by UID.
    * @param uid -
    */
@@ -258,6 +337,39 @@ export class DefaultApiClient {
 
     const uri = parser.parse(uriTemplate).expand({
       uid: request.path.uid,
+    });
+
+    return await this.fetchApi.fetch(`${baseUrl}${uri}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.token && { Authorization: `Bearer ${options?.token}` }),
+      },
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Delete the status of an entity from a specific external source.
+   * @param kind -
+   * @param namespace -
+   * @param name -
+   * @param source - The source of the status to delete.
+   * @param stitch - When set to &#x60;skip&#x60;, the status is deleted but no stitch is triggered.
+   */
+  public async deleteEntityStatusByName(
+    // @ts-ignore
+    request: DeleteEntityStatusByName,
+    options?: RequestOptions,
+  ): Promise<TypedResponse<void>> {
+    const baseUrl = await this.discoveryApi.getBaseUrl(pluginId);
+
+    const uriTemplate = `/entities/by-name/{kind}/{namespace}/{name}/status{?source,stitch}`;
+
+    const uri = parser.parse(uriTemplate).expand({
+      kind: request.path.kind,
+      namespace: request.path.namespace,
+      name: request.path.name,
+      ...request.query,
     });
 
     return await this.fetchApi.fetch(`${baseUrl}${uri}`, {
@@ -475,6 +587,36 @@ export class DefaultApiClient {
   }
 
   /**
+   * List the status sources for an entity.
+   * @param kind -
+   * @param namespace -
+   * @param name -
+   */
+  public async getEntityStatusSourcesByName(
+    // @ts-ignore
+    request: GetEntityStatusSourcesByName,
+    options?: RequestOptions,
+  ): Promise<TypedResponse<GetEntityStatusSourcesByName200Response>> {
+    const baseUrl = await this.discoveryApi.getBaseUrl(pluginId);
+
+    const uriTemplate = `/entities/by-name/{kind}/{namespace}/{name}/status`;
+
+    const uri = parser.parse(uriTemplate).expand({
+      kind: request.path.kind,
+      namespace: request.path.namespace,
+      name: request.path.name,
+    });
+
+    return await this.fetchApi.fetch(`${baseUrl}${uri}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.token && { Authorization: `Bearer ${options?.token}` }),
+      },
+      method: 'GET',
+    });
+  }
+
+  /**
    * Query entities using predicate-based filters.
    * @param queryEntitiesByPredicateRequest -
    */
@@ -538,6 +680,40 @@ export class DefaultApiClient {
     const uriTemplate = `/refresh`;
 
     const uri = parser.parse(uriTemplate).expand({});
+
+    return await this.fetchApi.fetch(`${baseUrl}${uri}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.token && { Authorization: `Bearer ${options?.token}` }),
+      },
+      method: 'POST',
+      body: JSON.stringify(request.body),
+    });
+  }
+
+  /**
+   * Update the status of an entity from an external source.
+   * @param kind -
+   * @param namespace -
+   * @param name -
+   * @param updateEntityStatusByNameRequest -
+   * @param stitch - When set to &#x60;skip&#x60;, the status is written but no stitch is triggered. The caller is responsible for triggering a stitch separately.
+   */
+  public async updateEntityStatusByName(
+    // @ts-ignore
+    request: UpdateEntityStatusByName,
+    options?: RequestOptions,
+  ): Promise<TypedResponse<void>> {
+    const baseUrl = await this.discoveryApi.getBaseUrl(pluginId);
+
+    const uriTemplate = `/entities/by-name/{kind}/{namespace}/{name}/status{?stitch}`;
+
+    const uri = parser.parse(uriTemplate).expand({
+      kind: request.path.kind,
+      namespace: request.path.namespace,
+      name: request.path.name,
+      ...request.query,
+    });
 
     return await this.fetchApi.fetch(`${baseUrl}${uri}`, {
       headers: {

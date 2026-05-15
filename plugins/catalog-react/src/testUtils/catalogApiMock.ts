@@ -84,5 +84,7 @@ export namespace catalogApiMock {
     analyzeLocation: jest.fn(),
     streamEntities: jest.fn(),
     streamEntityPages: jest.fn(),
+    setEntityStatus: jest.fn(),
+    deleteEntityStatus: jest.fn(),
   }));
 }

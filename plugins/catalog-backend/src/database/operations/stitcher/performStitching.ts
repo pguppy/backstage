@@ -37,11 +37,13 @@ import {
   LoggerService,
   isDatabaseConflictError,
 } from '@backstage/backend-plugin-api';
-
-// See https://github.com/facebook/react/blob/f0cf832e1d0c8544c36aa8b310960885a11a847c/packages/react-dom-bindings/src/shared/sanitizeURL.js
-const scriptProtocolPattern =
-  // eslint-disable-next-line no-control-regex
-  /^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[\r\n\t]*c[\r\n\t]*r[\r\n\t]*i[\r\n\t]*p[\r\n\t]*t[\r\n\t]*\:/i;
+import {
+  StitchingStatusMerger,
+  EntityStatusQuery,
+} from '@backstage/plugin-catalog-node/alpha';
+import { sanitizeStatus, scriptProtocolPattern } from '../../../util/status';
+import { DefaultCatalogStatusStore } from '../../DefaultCatalogStatusStore';
+import { JsonObject } from '@backstage/types';
 
 /**
  * Performs the act of stitching - to take all of the various outputs from the
@@ -54,8 +56,11 @@ export async function performStitching(options: {
   strategy: StitchingStrategy;
   entityRef: string;
   stitchTicket?: string;
+  stitchingStatusMergers?: StitchingStatusMerger[];
+  statusStore: DefaultCatalogStatusStore;
+  prefetchedStatuses?: Map<string, Record<string, JsonObject>>;
 }): Promise<'changed' | 'unchanged' | 'abandoned'> {
-  const { knex, logger, entityRef } = options;
+  const { knex, logger, entityRef, stitchingStatusMergers } = options;
   const stitchTicket = options.stitchTicket;
 
   // In deferred mode, the entity is removed from the stitch queue on ANY
@@ -175,6 +180,14 @@ export async function performStitching(options: {
         ...entity.metadata.annotations,
         ['backstage.io/orphan']: 'true',
       };
+      try {
+        await options.statusStore.deleteAllForEntity(entityRef);
+      } catch (error) {
+        logger.warn(
+          `Failed to clean up status for orphaned entity ${entityRef}`,
+          error,
+        );
+      }
     }
     if (errors) {
       const parsedErrors = JSON.parse(errors) as SerializedError[];
@@ -204,11 +217,52 @@ export async function performStitching(options: {
         type: row.relationType!,
         targetRef: row.relationTarget!,
       }));
+
+    if (stitchingStatusMergers?.length) {
+      const prefetched = options.prefetchedStatuses ?? new Map();
+      const query: EntityStatusQuery = {
+        getStatuses: async (refs: string[]) => {
+          const result = new Map<string, Record<string, JsonObject>>();
+          const uncached: string[] = [];
+          for (const ref of refs) {
+            const cached = prefetched.get(ref);
+            if (cached) {
+              result.set(ref, cached);
+            } else {
+              uncached.push(ref);
+            }
+          }
+          if (uncached.length > 0) {
+            logger.debug(
+              `EntityStatusQuery cache miss for ${uncached.length} ref(s) during stitch of ${entityRef}`,
+            );
+            const fetched = await options.statusStore.getStatuses(uncached);
+            for (const [ref, data] of fetched) {
+              result.set(ref, data);
+            }
+          }
+          return result;
+        },
+      };
+
+      for (const merger of stitchingStatusMergers) {
+        try {
+          await merger.merge({ entity, entityRef, query });
+        } catch (error) {
+          logger.warn(`StitchingStatusMerger failed for ${entityRef}`, error);
+        }
+      }
+    }
+
     if (statusItems.length) {
       entity.status = {
         ...entity.status,
         items: [...(entity.status?.items ?? []), ...statusItems],
       };
+    }
+
+    if (entity.status) {
+      entity.status = sanitizeStatus(entity.status);
     }
 
     // If the output entity was actually not changed, just abort
