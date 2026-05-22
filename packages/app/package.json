@@ -81,7 +81,8 @@
     "react-router": "^6.3.0",
     "react-router-dom": "^6.3.0",
     "react-use": "^17.2.4",
-    "zen-observable": "^0.10.0"
+    "zen-observable": "^0.10.0",
+    "@backstage/plugin-github-copilot": "workspace:^"
   },
   "devDependencies": {
     "@backstage/test-utils": "workspace:^",

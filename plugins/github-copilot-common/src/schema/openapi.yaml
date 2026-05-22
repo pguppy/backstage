@@ -1,0 +1,186 @@
+openapi: 3.1.0
+info:
+  title: github-copilot
+  version: '1'
+paths:
+  /metrics/enterprise/summary:
+    get:
+      operationId: getEnterpriseSummary
+      parameters:
+        - in: query
+          name: enterprise
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Enterprise summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnterpriseSummary'
+  /metrics/enterprise/daily:
+    get:
+      operationId: getEnterpriseDaily
+      parameters:
+        - in: query
+          name: enterprise
+          required: true
+          schema: { type: string }
+        - in: query
+          name: from
+          required: true
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Daily metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DailyMetrics'
+  /metrics/enterprise/users:
+    get:
+      operationId: getEnterpriseUsers
+      parameters:
+        - in: query
+          name: enterprise
+          required: true
+          schema: { type: string }
+        - in: query
+          name: from
+          required: true
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: User metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserMetrics'
+  /metrics/enterprise/teams:
+    get:
+      operationId: getEnterpriseTeams
+      parameters:
+        - in: query
+          name: enterprise
+          required: true
+          schema: { type: string }
+        - in: query
+          name: from
+          required: true
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Team metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TeamMetrics'
+  /metrics/freshness:
+    get:
+      operationId: getDataFreshness
+      parameters:
+        - in: query
+          name: enterprise
+          schema: { type: string }
+      responses:
+        '200':
+          description: Data freshness
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataFreshness'
+components:
+  schemas:
+    EnterpriseSummary:
+      type: object
+      properties:
+        reportWindow: { type: object, properties: { startDay: { type: string }, endDay: { type: string } } }
+        dailyActiveUsers: { type: number }
+        weeklyActiveUsers: { type: number }
+        monthlyActiveUsers: { type: number }
+        monthlyActiveChatUsers: { type: number }
+        monthlyActiveAgentUsers: { type: number }
+        totalInteractions: { type: number }
+        codeGenerated: { type: number }
+        codeAccepted: { type: number }
+        acceptanceRate: { type: number }
+        chatModes: { type: object, properties: { askMode: { type: number }, editMode: { type: number }, planMode: { type: number }, agentMode: { type: number }, customMode: { type: number }, unknownMode: { type: number } } }
+        pullRequests: { type: object, properties: { totalCreated: { type: number }, totalMerged: { type: number }, copilotCreated: { type: number }, copilotReviewed: { type: number }, medianTimeToMergeMinutes: { type: number } } }
+        dailyActiveCLIUsers: { type: number }
+    DailyMetrics:
+      type: object
+      properties:
+        day: { type: string }
+        dailyActiveUsers: { type: number }
+        weeklyActiveUsers: { type: number }
+        monthlyActiveUsers: { type: number }
+        userInitiatedInteractionCount: { type: number }
+        codeGenerationActivityCount: { type: number }
+        codeAcceptanceActivityCount: { type: number }
+        locAddedSum: { type: number }
+        locDeletedSum: { type: number }
+        agentEdit: { type: number }
+        chatModes: { $ref: '#/components/schemas/ChatModeBreakdown' }
+        dailyActiveCLIUsers: { type: number }
+    UserMetrics:
+      type: object
+      properties:
+        day: { type: string }
+        userId: { type: string }
+        userLogin: { type: string }
+        dailyActiveUsers: { type: number }
+        userInitiatedInteractionCount: { type: number }
+        codeGenerationActivityCount: { type: number }
+        codeAcceptanceActivityCount: { type: number }
+        locAddedSum: { type: number }
+        locDeletedSum: { type: number }
+        chatModes: { $ref: '#/components/schemas/ChatModeBreakdown' }
+        usedCLI: { type: boolean }
+        usedAgent: { type: boolean }
+        usedChat: { type: boolean }
+        lastKnownIDEVersion: { type: string }
+    TeamMetrics:
+      type: object
+      properties:
+        teamId: { type: string }
+        teamSlug: { type: string }
+        memberCount: { type: number }
+        dailyActiveUsers: { type: number }
+        userInitiatedInteractionCount: { type: number }
+        codeGenerationActivityCount: { type: number }
+        codeAcceptanceActivityCount: { type: number }
+        locAddedSum: { type: number }
+        locDeletedSum: { type: number }
+        acceptanceRate: { type: number }
+        agentUsageCount: { type: number }
+    ChatModeBreakdown:
+      type: object
+      properties:
+        askMode: { type: number }
+        editMode: { type: number }
+        planMode: { type: number }
+        agentMode: { type: number }
+        customMode: { type: number }
+        unknownMode: { type: number }
+    DataFreshness:
+      type: object
+      properties:
+        lastSyncDate: { type: string }
+        latestAvailableDate: { type: string }
+        windowStart: { type: string }
+        daysAvailable: { type: number }
